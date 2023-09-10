@@ -1,0 +1,204 @@
+---
+title: "Strings and RegExps in US Abortion Data and Decoding a Secret Message"
+author: "Maxwell Troilo"
+date: "April 2, 2023"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(knitr, tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Cleaning US Abortion Data
+
+With data provided by the CDC and the Guttmacher Institute, `raw_ab` categorizes the number of abortions by state in the US over time. The data present from these sources differs in some ways, but in order to analyze these discrepancies and analyze the values, some cleaning of `raw_ab` must be conducted. 
+
+## Load Relevant Packages and Data
+
+Before we begin, we have to load the stringr package to manipulate strings more easily, which is part of the tidyverse package. In addition, we have to load the `raw_ab.csv` data into our document.
+```{r}
+pacman::p_load(tidyverse)
+raw_ab<-read_csv("../Datasets/raw_ab.csv")
+raw_ab
+```
+Now that these are loaded, we can begin to clean the `raw_ab` dataset.
+
+### Tidy Missing and Incoherent Values
+
+First, we will remove any `NA` values from the `CDC` column, as well as any observations where the column does not contain any number.
+```{r}
+ab1 <- raw_ab %>% 
+  filter((!is.na(CDC)) & str_detect(CDC, "[:digit:]")) #filter observations to remove missing values and non-number values
+head(ab1)
+```
+This removes unhelpful missing values in the data, cleaning it and making it easier to use `CDC` for further analysis if we wish using the numerical values.
+
+### Remove Parentheses
+
+Then, we will further clean `raw_ab` by removing any parentheses in the `CDC` or `AGI` columns. This tidying further eases use of the dataset in analysis.
+```{r}
+ab2<- ab1 %>% 
+  mutate(CDC = str_replace_all(CDC, "\\(", ""),
+         CDC = str_replace_all(CDC, "\\)", ""),
+         AGI = str_replace_all(AGI, "\\(", ""),
+         AGI = str_replace_all(AGI, "\\)", "")) #replace parentheses with no space in AGI and CDC
+head(ab2)
+```
+The removal of both open and closed parentheses requires two backslashes in the string expression, creating the regular expression which indicates the parentheses.
+
+### Remove Commas
+
+We will further manipulate `raw_ab` by removing any instances of commas in `CDC` or `AGI`, cleaning up these columns so that their values can be more freely used in analysis.
+```{r}
+ab3<- ab2 %>% 
+  mutate(CDC = str_replace_all(CDC, ",", ""), #replace commas with no space
+         AGI = str_replace_all(AGI,",", ""))
+head(ab3)
+```
+The frame `ab3`, therefore, lists the values of `CDC` and `AGI` as numbers with no comma punctuation.
+
+### Change Type and Select Relevant Variables
+
+Finally, we will conclude our cleaning of `raw_ab` by converting the values of `CDC`, `AGI`, and `year` from character type to double type and removing all of the other columns in the dataset.
+```{r}
+ab4<- ab3 %>% 
+  mutate(CDC = as.double(CDC),
+         AGI = as.double(AGI),
+         year = as.double(year)) %>% #change type of year, CDC, and AGI to double
+  select(2:5) #select year, AGI, and CDC
+head(ab4)
+```
+`ab4` the final clean product, displays the `raw_ab` data for only the variables we are interested in in an analyzable type, with no `NA` values or pesky punctuation. Now, multiple research questions can be asked and answered from this data, but we won't get into that today.
+
+# Decoding a Secret Message
+
+In order to practice working with regular expressions and strings more, we will decode a secret message.
+
+## Load in the Data
+
+First, let's load in the scrambled message and name it `message`.
+```{r}
+message <- read.csv("https://www.dropbox.com/s/lgpn3vmksk3ssdo/scrambled_message.txt?dl=1", stringsAsFactors = FALSE)$Word
+kable(message)
+```
+
+## Warm Up Exercises
+
+Let's get to know the structure of `message` more clearly for ease of use later.
+
+### How many characters?
+
+In order to know how long the data we are working with is, let's determine how many characters are present in `message`.
+```{r}
+sum(str_length(message))
+```
+As we can see, there are 2544 characters in `message` including digits, spaces, letters, and punctuation.
+
+### How many words?
+
+While there are 2544 characters, how many individuals words do these characters make up?
+```{r}
+sum(str_count(message, "[.]\\s[.]"))
+#find observations of more than 1 word
+summary(message) #since the above is 0, summary shows length of message which is equal to number of words
+```
+Since there are no observations in which there is more than one word, and each observation has at least one word, we can conclude the number of words is equal to the length of `message`, 127 words.
+
+### Punctuation Marks
+
+There is punctuation throughout `message`. Let's isolate the punctuation without any of the other text.
+```{r warmup 4}
+punct_marks1 <- str_replace_all(message, "[:alnum:]", "") #remove all digits and letters
+punct_marks2 <- str_replace_all(punct_marks1, "\\s", "") #remove all spaces
+punct_marks<- str_subset(punct_marks2, "[:punct:]") #show the punctuation marks
+punct_marks
+```
+The output above shows all of the punctuation present in each of the 60 observations in `message`.
+
+### Longest Word Capitalized
+
+Obviously some words in `message` are longer than others, let's find the longest one and capitalize it for fun.
+```{r warmup 5}
+max(str_length(message)) #find length of longest word
+str_to_upper(message[str_length(message) == 25]) #print longest word in uppercase according to length
+```
+The longest word in `message`, "KAUDEVILLIANUGH?AOGHAJDBN", is 25 characters long.
+
+## Playing Superspy
+
+Now, let's actually decode `message` to determine what it says. We will complete this task through 8 cleaning tasks conducted below using regular expressions.
+
+### Removing Spaces
+
+There are spaces everywhere, let's make the message more clear by removing them.
+```{r 1}
+decode_1 <- str_replace_all(message, " ", "")
+head(decode_1)
+```
+
+### Limit Words to 16 Characters
+
+Several words are more than 16 characters, we can remove those extra characters to clean `message`.
+```{r 2}
+decode_2 <- str_sub(decode_1, 1, 16)
+head(decode_2)
+```
+As shown above, the previously 25 character long "KAUDEVILLIANUGH?AOGHAJDBN" is now the 16 character long "kaudevillianugh?".
+
+### Replace "ugh" in all its Forms
+
+There are many instances of the string "ugh" with added h's or extra punctuation following them, which clouds the meaning of the message. Let's remove those.
+```{r}
+decode_3 <- str_replace_all(decode_2, "ug[h]+[:punct:]+", "") #remove all "ugh" with any number of h's followed by punctuation
+head(decode_3)
+```
+Now, "kaudevillianugh?" is just "kaudevillian", demonstrating the removal of "ugh"s was successful. 
+
+### Replace "aa" with "ee"
+
+In coding the secret message, someone made all of the instances of "ee" appear as "aa", which we should reverse.
+```{r}
+decode_4<- str_replace_all(decode_3, "aa", "ee")
+head(decode_4)
+```
+Those words which previously displayed "aa" in their string now show "ee" in their place.
+
+### Replace all Instances of "z" with "t"
+
+We have to conduct a similar replacement of "z" in `message`, converting it to "t" throughout.
+```{r}
+decode_5<- str_replace_all(decode_4, "z", "t")
+head(decode_5, n=10)
+```
+As shown above, "z" has been replaced by "t" in words such as "keteran,".
+
+### Change words that end in "b" to "y"
+
+Like the two previous steps, let's replace all words ending in "b" to ending in "y" to further clarify the message.
+```{r}
+decode_6<- str_replace_all(decode_5, "(b)([:punct:]$)|b$", "y\\2") #remove all words that end in b or b and punctuation, replacing the b with y in either case
+head(decode_6, n=10)
+```
+As demonstrates above, "b" has been replaced when it ends words with "y", such as in "kicariously".
+
+### Change words that start with "k" to "v"
+
+Further decoding the scrambled message, let's replace all instances of "k" that start a word with "v".
+```{r}
+decoded<- str_replace_all(decode_6, "^k|^K", "v") #replace both capitalized and lowercase k's with v
+head(decoded, n = 10)
+```
+This converts several words in `message` to new values, such as "voila!", "view,", and "veteran,".
+
+### Combine words into Message
+
+Finally, we will combine these words into a message we can easily read.
+```{r}
+str_c(decoded, sep="", collapse = " ") #collapse vector of strings into single message
+```
+This quote is from the movie V for Vendetta, written by Lana and Lilly Wachowski, adapted from the graphic novel by Alan Moore. V, played by Hugo Weaving, introduces himself to Evey, played by Natalie Portman.
+
+This concludes our cleaning of US abortion data and decoding of the secret message.

@@ -1,0 +1,167 @@
+---
+title: "HW 7"
+author: "Maxwell Troilo"
+date: "April 16, 2023"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(knitr, tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Finding a Killer and Creating Visualizations using the `lubridate` and `ggmap` Packages
+
+## Load relevant packages
+
+First, let's load the relevant packages for working with dates and datasets, as well as those necessary for creating maps and designing clear visualizations. 
+```{r}
+pacman::p_load(tidyverse, lubridate, stringr, ggmap, maps, mapdata, RColorBrewer, colorRamps)
+```
+
+## Find the Zodiac Killer
+
+To practice working with `lubridate`, we will work through an activity designed by *Adventures in R* to find the identity of the Zodiac Killer of Northern California based on dates and times of suspect sightings.
+The probable killer is among a list of suspects compiled by the FBI, however it is our task to use this dataset combined with information we know about the deaths to find the right individual. First, let's load in and examine the data.
+```{r}
+suspect_times<- read_csv("../Datasets/sustimes.csv")
+suspect_times
+```
+The dataset includes 214 observations of 3 notable character variables, the suspects' names, their occupations, and the times they were seen near or at the scene of the crime. **Note: `Time.Spotted` is listed as a `datetime` variable when it should be of type `character`. For our purposes, we will act as if it is a character variable in the following step, as the code itself is correct.**
+
+### Convert `Time.Spotted` into a `date-time` variable
+
+In order to solve the mystery, we have to treat the `Time.Spotted` variable as of type `datetime` which requires a conversion from its type `character` in order for further analysis.
+```{r number one part one}
+afternoon_hour<- suspect_times %>% 
+  mutate(Time.Spotted = ymd_hms(Time.Spotted))
+str(afternoon_hour)
+```
+Now that `Time.Spotted` is a `POSIXct` type variable, we can analyze the observations according to their value in time, rather than as a string of characters.
+
+### Clue 1: The murder was in the afternoon
+
+Based on postmortem analysis, investigators have found that the murder was committed in the afternoon according to sunburn patterns on the skin. Therefore, we can eliminate all suspects who were spotted in the morning.
+```{r number one part two}
+kill_time <- suspect_times %>% 
+  filter(hour(Time.Spotted) >= 12) #filter observations by those where the time spotted is greater than the 12th hour of the day
+str(kill_time)
+```
+We have now selected the 112 observations within the dataset which show the suspects who were spotted in the afternoon, when the murders would have to have taken place.
+
+### Clue 2: The murder wasn't committed on Tuesday or Thursday
+
+Because the location of the killing is closed on Tuesdays and Thursdays, we can reasonably rule out any suspects who were seen on those days.
+```{r question 2}
+kill_date<- kill_time %>% 
+  filter(wday(Time.Spotted) != c(3,5)) #filter by observations that are not the 3rd or 5th day of the week, TUES and THURS
+str(kill_date)
+```
+This selection of the important suspects isolates 92 possible remaining suspects who were not spotted on a Tuesday or Thursday.
+
+### Clue 3: The murder occurred near Thanksgiving
+
+The day the murder happened was within 35 days of Thanksgiving in 2018. Since we can easily find that Thanksgiving occurred on November 22nd that year, we can filter our observations to include those that are within that plus/minus 35-day interval.
+```{r}
+thanksgiving<- ymd("2018-11-22") #assign thanksgiving day
+day_interval<- interval((thanksgiving - days(35)), (thanksgiving + days(35))) #create interval of 35 days on either side of thanksgiving
+
+givingthanks<- kill_date %>% 
+  filter(
+    Time.Spotted %within% day_interval) #filter observations within the interval of thanksgiving
+str(givingthanks)
+```
+This isolates 16 individuals who were sighted within 35 days of Thanksgiving.
+
+### Clue 4: The murder happened within two days of the killer's birthday
+
+In a lucky break for investigators, the killer left behind a birthday card at the crime scene. The date is smudged, but the day is visible as the *22nd*. Officers concluded that the murder must have occurred less than two days after the killer's birthday, so we can narrow down our suspect pool further based on this evidence.
+```{r}
+birthday<- givingthanks %>% 
+  filter(
+    (mday(Time.Spotted) >=22) & # filter observation by day of the month, acquiring those that are between 22 and 24
+      mday(Time.Spotted) <= 24)
+birthday
+```
+This leaves only three final suspects: the astrologer Nostradamus, the politician Ted Cruz, and the singer Donna Summer.
+
+### Clue 5: The Zodiac's message
+
+Excited by the investigation, the killer released one last clue of their identity in order to tease and torment the police. It reads: *"The number of minutes between January 1, 1970 at midnight and the time I arrived at the scene is divisible by 10."* We can use this clue to isolate our killer, as all `date-time` variables exist as values spanning after January 1st, 1970 at midnight. How lucky!
+```{r}
+arrival<- birthday %>% 
+  filter(
+    (as.numeric(minute(Time.Spotted) %% 10) == 0)) #filter observations by the minute where the time spotted can be divided by 10 with no remainder
+arrival
+```
+Given this final clue, we have discovered the Zodiac Killer is Ted Cruz, which makes a lot of sense.
+
+## Create a Map of Gun Deaths in U.S. States
+
+Gun violence in the United States is a massive problem, and one that doesn't look like it will be resolved soon. Because of this fact, we will create a map of **gun death rates per 100,000 people in states of the U.S. in 2022** using data from the CDC.
+
+### Load data
+
+First, we have to load in the data on the rates of death caused by guns in the United States. This data is from the *World Population Review*, who accumulated it from reports by the CDC.
+```{r}
+gundeath <- read.csv("../Datasets/gunrates.csv")
+str(gundeath)
+```
+The dataset includes 50 observations, one for each state, of 14 variables, including those we are most interested in for our map, `state` and `rate`. These describe the US state analyzed and the rate of death caused by gun violence, respectively. The dataset also includes interesting data that we will not examine today, such as whether or not the state requires gun permits (`reqPermit`).
+
+### Acquiring the relevant data
+
+Before we create the map, we have to clean `gundeath` a bit to access the variables we want to visualize, match the format of our `state` variable observations to the corresponding map_data() structure, and improve the description of the column `rate`.
+```{r}
+gundeath_clean<- gundeath %>% 
+  select(state, rate) %>% 
+  mutate(state = str_to_lower(state)) %>% 
+  rename("death_rate" = "rate")
+head(gundeath_clean)
+```
+Now, we have selected the variables that we are interested in showing in the map, `state` and `rate`, renamed `rate` to `death_rate` for ease of understanding, and converted all observations of `state` to lowercase text strings to match the inputs of map_data("state") which we will use in the next step.
+ 
+### Use `map_data()` to find state coordinates
+
+In order to create our map, we need accurate coordinates of all the U.S. states. We can use the `mapdata` package to find these specific values for each state. These coordinates will outline each state and render them into a data frame that we can use to build our map. The `region` variable values match the 50 state observations in the `state` variable of `gundeath_clean`, which we made lowercase to match these values exactly.
+```{r}
+gunmap<- map_data("state")
+str(gunmap)
+```
+There are over 15,500 observations in this frame, but they all make up the 50 states of the US. `long` and `lat` describe the longitude and latitude coordinates of the borders of each state, while the `region` variable corresponds to the US states themselves. 
+
+### Joining `gundeath_clean` and `gunmap`
+
+Now, we have to combine the two datasets we have created into one frame we can use for our map. We can `left_join()` the `gunmap` data with `gundeath_clean` by the shared variables `region` and `state`, as they have the same meaning, both corresponding to the 50 U.S. states. This join will search for the name of a state in `region` and assign it the matching name of an observation in `state`.
+```{r}
+stategundeath <- gunmap %>% 
+  left_join(gundeath_clean, by = c("region" = "state"))
+head(stategundeath)
+```
+This results in one dataset, `stategundeath`, with all of the information we need to make our graph. We have longitude and latitude values for each state border in the U.S., the rate of deaths caused by gun violence in each state, and the 50 states themselves.
+
+### Making our map
+
+Now we can create our map of gun death rates by state using the `stategundeath` data frame. We will first create a specific theme useful in making maps that will remove axis titles, text, lines, and tick marks. These elements are usually useful in making graphs using `ggplot2`, but are not helpful in creating maps with `ggmap`.
+We then create a polygon with our x-axis corresponding to `long`, our y-axis corresponding to `lat`, and the shapes themselves filled in according to `death_rate`. In order for R to create the proper borders, we specify that `group = group` in our aesthetics, and that the border outline color should be black. We also tell R to fill the shapes with the "plasma" option of `viridis`, apply our `clean_map` theme, and add a title and subtitle to the map.
+```{r}
+clean_map <- theme(
+axis.text = element_blank(),
+axis.line = element_blank(),
+axis.ticks = element_blank(),
+axis.title = element_blank(),
+)
+ggplot(stategundeath, aes(x = long, y = lat, fill = death_rate)) +
+  geom_polygon(aes(group = group), color = "black") +
+  coord_fixed(1.4) + #with each 1 unit increase in x, y increases by 1.4
+  scale_fill_viridis_c(option = "C", direction = -1) +
+  clean_map +
+  labs(title = "Deaths Caused by Guns in U.S. States per 100,000 People", subtitle = "Based on data from the CDC in 2022") +
+  theme(legend.title = element_blank()) #remove legend title
+```
+The map created demonstrates the rate of death caused by gun violence in states of the U.S. per 100,000 people. There are several states that stand out for good and bad reasons. Southern states generally have higher gun death rates than other regions of the U.S. with several notable observations including Alabama, Mississippi, Louisiana, and Missouri. All of these have over 20 deaths caused by gun violence per 100,000 people in 2022. The only other state with a similar rate is Montana. New York and Massachusetts notably have far lower rates of gun deaths, with less than 5 deaths per 100,000 people each in 2022. It is important to highlight that this map only descirbes the **rate** of gun deaths in each state, so states like Texas have far higher numbers of deaths caused by guns (over 3500) but those numbers are offset by their population.
+
+This concludes our investigation into the Zodiac Killer and creation of a map of gun deaths.
