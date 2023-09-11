@@ -1,0 +1,242 @@
+---
+title: "A Study of Marijuana Prices Across the US in 2014"
+author: "Max Shumway, Max Troilo, Dhanya Karra, Michael Varrone Jr."
+date: '2023-04-29'
+output: pdf_document
+
+---
+
+## Setup  
+We will begin by loading in the necessary packages and the data set of interest for our project. We believe that the `weedprices` data will prove to be very useful for our research and cleaning needs. 
+
+```{r set, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup}
+pacman::p_load(tidyverse, readxl, knitr, kableExtra, ggmap, mapdata, ggthemes, viridis)
+weed_prices <- read_csv("./weedprices.csv")
+```
+
+## Description and Basic Exploration of the Dataset 
+```{r explore}
+table <- tibble(weed_prices)
+table
+summary(weed_prices)
+```
+
+As summarized above, this data set contains information on states in the US for prices of marijuana by quality monthly from January of 2014 until December of 2014. There are noticeable missing values, however, for the prices of `LowQ` marijuana ranging from September until December. 
+
+Three character variables are indicative of the average of average prices of marijuana by quality in U.S. dollars, corresponding to high, medium, and low respectively. These are the `HighQ`, `MedQ`, and `LowQ` variables within our data set. An example being, in Alabama in Jan. 2014 the average price of high quality marijuana as indicated by `HighQ` was $339.06 while the price of `MedQ` was $198.64 and `LowQ` $149.09. These values range heavily within and between states. 
+
+**Note**: While it is not explicitly mentioned in the data, through personal investigation, inquiry, and inference we have concluded that it is quite possible that these price points represent a quantity of one ounce (28.5g) of marijuana.
+
+The final three variables are all of type `double` and represent the number of reported prices from buyers respective to each quality: high, medium, low. These are the `HighQN`, `MedQN`, and `LowQN` variables. For example, the value **1042** of `HighQN` in Alabama in Jan. 2014 represents that there were 1042 reported prices from buyers of high quality marijuana. 
+
+## Research Question & Data Dictionary
+Given the data available in `weedprices.csv`, important questions to answer are: How does the average cost of marijuana vary across different regions? and How much does the average marijuana price change over time in particular states? To answer these, we intend to address **how do high quality marijuana prices vary on weighted average across the continental United States in 2014?**, as well as **what was the average change in prices of marijuana by quality across each region in the United States for an eight month period in 2014?**
+
+In order to answer the first question, we will create a map that visualizes the entire continental United States with states colored individually with the weighted average price of high quality marijuana in 2014.To answer the second question, we will create a scatter plot that shows values representing the average prices of marijuana colored by quality and faceted by the respective region over and an eight month period in 2014.These analyses will answer our questions, demonstrating both how average prices differ between quality in US regions over time and between states in a single year. In order to do this we will use the following variables.
+
+
+```{r dd}
+d_dict <- read_excel("./data_dictionary.xlsx")
+d_dict %>%
+  kbl() %>%
+  kable_styling()
+```
+
+
+
+## Data Cleaning Methods
+To better serve the data set we are intending to tidy it in the following manner: 
+
+  1. Use `pivot_longer()` to reshape the data so as to see prices of marijuana respective of quality (`HighQ`,`MedQ`,`LowQ`) in `avg_chart`.
+  
+  2. Splitting the `Month` variable into `month` and `year` using the `separate()` function then re-coding month abbreviations to numbers using `recode()`. 
+  
+  3. Cleaning names using `janitor:: clean_names()` for all data set variables.
+  
+  4. Identify, create, and remove missing or `NA` values within `LowQ` variable for plotting purposes.  
+  
+  5. Cleaning strings in the marijuana quality variables (`HighQ`,`MedQ`,`LowQ`) using the `stringr` package and regular expressions to remove unnecessary punctuation. 
+  
+  6. Coercing (`HighQ`, `MedQ`, `LowQ`) variables from type character to type double using the `as.numeric()` function. 
+
+## Data Cleaning 
+```{r clean}
+weed_price_cleaned <- weed_prices %>%
+  separate(Month, into = c("month", "year"), sep = " ") %>% #separate month into month, year
+  mutate(across(c(HighQ, MedQ, LowQ), ~ as.numeric(str_remove_all(.x, "\\$")))) #mutate across price variables to coerce & remove dollar sign
+
+weed_price_cleaned
+```
+
+Our first order of cleaning of the data requires us to create a two variables out of the original `Month` variable found in `weed_prices`. This creates a `month` and `year` variable that are still respective of observations. Next, we first mutate across our price variables `HighQ,MedQ,LowQ` to use the `stringr` package and regex syntax to remove dollar signs in the variable names. Once completed we continue to mutate these variables by coercing them to type `numeric` for our data manipulation purposes. 
+
+```{r clean 2}
+weed_price_cleaned2 <- weed_price_cleaned %>%
+  mutate(month = recode(month, "Jan." = "01", "Feb." = "02", "Mar." = "03", "Apr." = "04", "May." = "05", "Jun." = "06", "Jul." = "07", "Aug." = "08", "Sep." = "09", "Oct." = "10", "Nov." = "11", "Dec." = "12")) %>%
+  mutate(State = tolower(State)) %>%
+  janitor::clean_names()
+
+weed_price_cleaned2
+```
+
+This chunk is used to mutate the newly created `month` variable and re-code it to its corresponding number i.e., Jan. = 01, Feb., = 02 etc. for plotting purposes. We continue mutating, this time on the state variable to make all values lower case for joining purposes later on with our `map` data. Finally, we use the `janitor` package to clean all variable names. 
+
+## Data Transformation
+```{r transf}
+regionlist <- list(
+  northeast = c("maine", "new hampshire", "vermont", "massachusetts", "new york", "connecticut", "rhode island", "new jersey", "pennsylvania", "delaware", "maryland", "district of columbia"),
+  
+  midwest = c("north dakota", "south dakota", "minnesota", "wisconsin", "michigan", "ohio", "indiana", "illinois", "kansas", "nebraska", "iowa", "missouri"),
+  
+  southeast = c("virginia", "west virginia", "north carolina", "south carolina", "kentucky", "tennessee", "arkansas", "louisiana", "mississippi", "alabama", "georgia", "florida"),
+  
+  southwest = c("arizona", "new mexico", "oklahoma","texas"),
+  
+  west = c("washington", "oregon", "california", "idaho", "nevada", "utah", "wyoming", "montana", "colorado", "alaska", "hawaii")
+)
+
+regionframe <- stack(regionlist)
+colnames(regionframe)<- c("state", "region") #specify column names
+
+head(regionframe)
+```
+
+We create a list object called `regionlist` to include each region of interest which is equal to a character vector of respective state names. We then convert this list object to a data frame and label column names as state and region. This is for plotting purposes later on. 
+
+```{r transf2, warnings = FALSE}
+year_avg <- weed_price_cleaned2 %>%
+  select(1:3, month) %>% #only state, high_q,high_qn,month
+  group_by(state) %>% #show by state
+  summarize(statemean = weighted.mean(high_q, w = high_qn)) #weighted by num of reported prices
+
+year_avg
+
+USA_states <- map_data("state") #state map data
+
+weed_map <- USA_states %>%
+  left_join(year_avg, by = c("region" = "state")) #join using adjusted `by`
+
+head(weed_map)
+```
+
+For the first output, we begin by creating an object called `year_avg` that is grouped by state and is summarized by a `statemean` variable we create by taking a weighted mean of high quality marijuana prices weighted by the number of reported prices for that quality of marijuana.
+
+**Note**: When creating this weighted average, given that the value of the (`high_q`,`med_q`,`low_q`) variables are already averages of averages we will be referring to this weighted average of an average of averages simply as a weighted average with the purpose of ease of understanding in the following descriptions. 
+
+The second output utilizes `map_data()` for all the continental United States in a `USA_states` object. We compile this map data with a `left_join()` of the year_avg to have complete state map data associated with respective weighted averages of high quality marijuana prices. 
+
+```{r transf3}
+weedregions <- weed_price_cleaned2 %>%
+  left_join(regionframe, by = "state") %>%
+  select(1:8, region) #select on state all weed data and region
+weedregions
+
+month_average <- weedregions %>%
+  filter(!is.na(low_q)) %>% #remove na in lowq
+  group_by(region, month) %>%
+  summarize(
+    high_avg = weighted.mean(high_q, w = high_qn), 
+    med_avg = weighted.mean(med_q, w = med_qn), 
+    low_avg = weighted.mean(low_q, w = low_qn))
+
+month_average #filtered NA values out only has 8 months
+```
+
+The first output of this code chunk is data frame `weedgregions` that is a copy of our cleaned data set and joins it with `regionframe` by state to add a region respective of the state variable. We select all prices of marijuana across quality, region, and state. 
+
+The second output utilizes `weedregions` to create a monthly weighted average by region and month. We first filter out all `NA` values within the `low_q` price variable which removes the last 4 months of the calendar year. We summarize these state and month groupings similarly to above by calculating weighted averages by number of reported prices by quality of marijuana. 
+
+
+```{r transf4}
+avg_chart <- month_average %>%
+  pivot_longer(
+    cols = c(high_avg, low_avg, med_avg), #quality variable respective of price 
+    names_to = "quality", 
+    values_to = "price"
+  )
+
+avg_chart
+```
+
+We created a final dataframe for our charting purposes called `avg_chart` that would be pivoted longer (`pivot_longer()`) to include a quality variable for each price in each month by region. 
+
+## Data Visualization 
+### High Quality Marijuana Prices in the United States
+
+A plot that displays a map of the United States at the state level colored by the weighted average of average price of high quality marijuana for the year 2014. 
+
+```{r visu1}
+ggplot(weed_map, aes(long, lat, fill = statemean)) +
+  geom_polygon(aes(group=group),
+  color="black") +
+  coord_fixed(1.3) +
+  ggtitle("Average of Average Price of High Quality Marijuana in Continental US States in 2014") +
+  labs(fill = "Weighted Mean Price") +
+  theme_map() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(size = 12.5, family = "serif")) +
+  scale_fill_viridis_c(option = "magma", direction = -1) 
+```
+
+From this first visualization, it is possible to see how the states largely differ in their respective price. The west has substantially lower prices and greater variation in prices than the mid-west, east, and south. The darkest coloring representative of highest prices can be found in North Dakota, Lousiana, and Vermont. The entire east coast tends to be around $300-$400 in price as opposed the west coast that boasts averages closer to $200-$250.
+
+### Marijuana Price Trends in the US by Region and Quality
+
+```{r visu2}
+avg_chart$quality <- as.factor(avg_chart$quality)
+ggplot(avg_chart, mapping = aes(x = month, y = price, color = quality))+
+  geom_point() +
+  facet_wrap(~ region, nrow = 1) +
+  labs(title = "Weighted Average Change in Price of Marijuana Qualities", subtitle = " An Eight Month Period in 2014", x = "Month", y = "Weighted Average Price") +
+  theme(plot.title = element_text(size = 11.5, family = "serif"),
+        plot.subtitle = element_text(size = 11.5, family = "serif")) +
+  labs(color = "Quality") +
+  theme(legend.position = "bottom") 
+```
+
+This plot gives the viewer a comprehensive understanding of the changes experienced within and between American regions respective of weed quality. There is a visible negative trend in prices for high quality weed over time and across regions, whereas both medium and low quality weighted average prices stay about constant. The northeast contains the highest high, medium, and low quality price for weed in comparison to other regions. Interestingly, the west contains the lowest average price over time for high quality weed but an almost identical trend in prices for both medium and low quality weed. 
+
+### Prices of Low Quality Marijuana in The West
+#### Supplementary Visual for Price Trends by Region
+
+```{r transf 5}
+west_states<- c("washington", "oregon", "california", "idaho", "nevada", "utah", "wyoming", "montana", "colorado", "alaska", "hawaii")
+
+pricetable<- weedregions %>%
+  select(state, 6:9) %>%
+  filter(!is.na(low_q),
+         state %in% west_states) %>%
+  group_by(state) %>%
+  summarize(lowmean = weighted.mean(low_q, w = low_qn)) %>%
+  arrange(desc(lowmean))
+
+pricetable
+```
+
+In the above map we saw that states in the West had many of the lowest means of weighted average prices for high quality marijuana, and yet in the following graph we demonstrated that despite having the lowest weighted average prices at that quality, the Western region has among the highest weighted average prices for low quality marijuana. This is surprising, so it is important to demonstrate how this occurred. To do so, we will take the `weedregions` frame we used earlier, filter it to isolate states in the West, and create a plot of the weighted mean prices of low quality marijuana for each state. This, hopefully, will provide some context to the above results.
+
+
+```{r visu3}
+ggplot(pricetable, mapping = aes(x = reorder(state, -lowmean), y = lowmean, fill = lowmean))+
+  geom_col() +
+  labs(title = "Weighted Average Price of Low Quality Marijuana in States of the US West",
+       x = "State", y = "Weighted Average Price of Low Quality Weed") +
+  labs(fill = "") +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(size = 11.5, family = "serif")) +
+  coord_flip() +
+  scale_fill_viridis(option = "plasma", direction = -1)
+
+```
+
+As the plot highlights, Montana and Alaska have far higher weighted average prices of low quality marijuana than the rest of the states in the West. Montana particularly, which has a fairly low `high_avg` value, has a low quality marijuana mean of average prices (`statemean`) of over $600. Alaska has a value of just under $400. These greatly impact the mean price for the Western region, which would otherwise be about $180. This helps to explain the effect we see in the faceted graph of the low quality mean of averages in the West, where several `low_q` and `med_q` points intersect, which does align with the general trend of weed price in western states.
+
+## Conclusion 
+
+High quality marijuana prices vary quite heavily on weighted across the continental United States in 2014. From our choropleth map we demonstrated that states in the Midwest such as North and South Dakota have high weighted average prices approaching 400 U.S. dollars per ounce. By contrast, many western states such as Oregon and Washington have weighted average prices that are closer to 200-250 U.S. dollars per ounce. This is a disparity of almost 200 U.S. dollars. The east coast weighted average prices are about 350 U.S. dollars with slight variation in states such Florida, Maine, and Michigan with prices closer to 300 U.S. dollars. Generally, western states tend to have lower weighted average prices of marijuana per ounce and trends in this weighted average appear to be regional across the entire continental United States. 
+
+Within each region of the United States there is little to no change in the weighted average prices of every quality of marijuana over an eight month period in 2014. Northeastern states tend to have the highest weighted average prices of marijuana across all qualities, while the west tends to have the lowest prices across high and medium qualities with low quality prices being notably high in states of this region. This is caused by the high outlier states of Alaska and Montana in this region. The only noticeable average change in prices over time is the relatively weak negative trend in the high quality marijuana across regions. 
